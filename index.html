@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Socket.IO Chat</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8f9fa;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .dark-mode {
+      background-color: #121212;
+      color: white;
+    }
+
+    .dark-mode #messages {
+      background-color: #1e1e1e;
+    }
+
+    #messages {
+      list-style-type: none;
+      margin: 0;
+      padding: 1rem;
+      height: calc(100vh - 6rem);
+      overflow-y: auto;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    #messages > li {
+    padding: 0.5rem 1rem;
+    margin-bottom: 0.5rem;
+    border-radius: 0.5rem;
+    max-width: 70%;
+    word-wrap: break-word;
+    display: flex;
+    align-items: center;
+    }
+
+    .message-self {
+        align-self: flex-end;
+        background-color: #007bff;
+        color: black;
+    }
+
+    .message-other {
+        align-self: flex-start;
+        color: black;
+    }
+
+    #messages > li:nth-child(odd) {
+      background: #007bff;
+
+    }
+
+    #messages > li:nth-child(even) {
+      background: #007bff;
+      color: black;
+    }
+
+    #form {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #f8f9fa;
+      display: flex;
+      padding: 0.5rem 1rem;
+      box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+    }
+
+    #input {
+      flex-grow: 1;
+      border: 1px solid #ced4da;
+      border-radius: 2rem;
+      padding: 0.5rem 1rem;
+    }
+
+    #form > button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 2rem;
+      padding: 0.5rem 1.5rem;
+      margin-left: 0.5rem;
+    }
+
+    #typing-status {
+      position: fixed;
+      bottom: 3.5rem;
+      left: 1rem;
+      font-size: 0.9rem;
+      color: #6c757d;
+    }
+
+    #connection-status {
+      position: fixed;
+      bottom: 5.5rem;
+      left: 1rem;
+      font-size: 0.9rem;
+      color: #6c757d;
+    }
+
+    .avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      margin-right: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <button id="themeToggle" class="btn btn-secondary" style="position: fixed; top: 1rem; right: 1rem;">Dark Mode</button>
+  <p id="connection-status" class="text-muted">Connected users: 0</p>
+
+  <div class="modal fade" id="nameModal" tabindex="-1" aria-labelledby="nameModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="nameModalLabel">Enter Your Name</h5>
+        </div>
+        <div class="modal-body">
+          <input type="text" id="usernameInput" class="form-control" placeholder="Enter your name" />
+        </div>
+        <div class="modal-footer">
+          <button id="saveNameBtn" class="btn btn-primary">Start Chat</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container py-4">
+    <ul id="messages" class="d-flex flex-column"></ul>
+    <p id="typing-status"></p>
+  </div>
+  <form id="form" style="display: none;">
+    <input id="input" autocomplete="off" placeholder="Type a message..." />
+    <button type="submit">Send</button>
+    <button id="toggle-btn" type="button">Disconnect</button>
+  </form>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const socket = io();
+        const form = document.getElementById('form');
+        const input = document.getElementById('input');
+        const messages = document.getElementById('messages');
+        const typingStatus = document.getElementById('typing-status');
+        const connectionStatus = document.getElementById('connection-status');
+        const nameModal = new bootstrap.Modal(document.getElementById('nameModal'));
+        const usernameInput = document.getElementById('usernameInput');
+        const saveNameBtn = document.getElementById('saveNameBtn');
+        const themeToggle = document.getElementById('themeToggle');
+        const toggleButton = document.getElementById('toggle-btn');
+
+        let username = '';
+
+        nameModal.show();
+
+        saveNameBtn.addEventListener('click', () => {
+            username = usernameInput.value.trim();
+            if (username) {
+            nameModal.hide();
+            form.style.display = 'flex';
+            socket.emit('user connected', username);
+            }
+        });
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (input.value) {
+            socket.emit('chat message', { username, message: input.value });
+            input.value = '';
+            socket.emit('stop typing');
+            }
+        });
+
+        input.addEventListener('input', () => {
+            socket.emit(input.value ? 'typing' : 'stop typing', username);
+        });
+
+        toggleButton.addEventListener('click', () => {
+            if (socket.connected) {
+            toggleButton.textContent = 'Connect';
+            socket.disconnect();
+            } else {
+            toggleButton.textContent = 'Disconnect';
+            socket.connect();
+            socket.emit('user connected', username);
+            }
+        });
+
+        socket.on('chat message', ({ username: sender, message }) => {
+            const item = document.createElement('li');
+            // Agrega clase según quién envió el mensaje
+            if (sender === username) {
+                item.classList.add('message-self'); // Mensajes propios a la derecha
+            } else {
+                item.classList.add('message-other'); // Mensajes de otros a la izquierda
+            }
+            item.innerHTML = `
+                <img src="https://api.dicebear.com/6.x/identicon/svg?seed=${sender}" alt="avatar" class="avatar">
+                <strong>${sender}:</strong> ${message}
+            `;
+            messages.appendChild(item);
+            messages.scrollTo(0, messages.scrollHeight); // Asegura que el scroll se ajuste
+        });
+
+
+        socket.on('typing', (user) => {
+            typingStatus.textContent = `${user} is typing...`;
+        });
+
+        socket.on('stop typing', () => {
+            typingStatus.textContent = '';
+        });
+
+        socket.on('update users', (count) => {
+            connectionStatus.textContent = `Connected users: ${count}`;
+        });
+
+        socket.on('user disconnected', (user) => {
+            const item = document.createElement('li');
+            item.textContent = `${user} has disconnected.`;
+            item.style.color = 'red';
+            messages.appendChild(item);
+            messages.scrollTo(0, messages.scrollHeight);
+        });
+
+        socket.on('user reconnected', (user) => {
+            const item = document.createElement('li');
+            item.textContent = `${user} has reconnected.`;
+            item.style.color = 'green';
+            messages.appendChild(item);
+            messages.scrollTo(0, messages.scrollHeight);
+        });
+
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            themeToggle.textContent = document.body.classList.contains('dark-mode') 
+            ? 'Light Mode' 
+            : 'Dark Mode';
+        });
+        });
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
